@@ -1,0 +1,57 @@
+# Frozen config for HSTUWithRankMixer on MovieLens-1M.
+#
+# Pipeline: HSTU (8 blocks) -> RankMixer (2 blocks, 4 experts) -> sampled softmax
+#
+# Run as:
+#   mkdir -p logs/ml-1m-l200/
+#   CUDA_VISIBLE_DEVICES=0 python3 main.py \
+#     --gin_config_file=configs/ml-1m/hstu-rankmixer-sampled-softmax-n128.gin \
+#     --master_port=12345 \
+#     2>&1 | tee logs/ml-1m-l200/hstu-rankmixer-sampled-softmax-n128.log
+
+train_fn.dataset_name = "ml-1m"
+train_fn.max_sequence_length = 200
+train_fn.local_batch_size = 128
+
+train_fn.main_module = "HSTUWithRankMixer"
+train_fn.dropout_rate = 0.2
+train_fn.user_embedding_norm = "l2_norm"
+train_fn.num_epochs = 101
+train_fn.item_embedding_dim = 50
+
+# ---- HSTU hyperparameters (same as the HSTU-large baseline) ----
+hstu_rankmixer_encoder.num_blocks = 8
+hstu_rankmixer_encoder.num_heads = 2
+hstu_rankmixer_encoder.dqk = 25
+hstu_rankmixer_encoder.dv = 25
+hstu_rankmixer_encoder.linear_dropout_rate = 0.2
+
+# ---- RankMixer hyperparameters ----
+# item_embedding_dim=50; dim_per_token=5 -> T=10 tokens, inner_dim=10
+hstu_rankmixer_encoder.rankmixer_dim_per_token = 5
+hstu_rankmixer_encoder.rankmixer_num_experts = 4
+hstu_rankmixer_encoder.rankmixer_k = 2.0
+hstu_rankmixer_encoder.rankmixer_t_multiplier = 1.0
+hstu_rankmixer_encoder.rankmixer_ffn_layers = 2
+hstu_rankmixer_encoder.rankmixer_n_layers = 2
+hstu_rankmixer_encoder.rankmixer_dropout = 0.1
+
+train_fn.learning_rate = 1e-3
+train_fn.weight_decay = 0
+train_fn.num_warmup_steps = 0
+
+train_fn.interaction_module_type = "DotProduct"
+train_fn.top_k_method = "MIPSBruteForceTopK"
+
+train_fn.loss_module = "SampledSoftmaxLoss"
+train_fn.num_negatives = 128
+
+train_fn.sampling_strategy = "local"
+train_fn.temperature = 0.05
+train_fn.item_l2_norm = True
+train_fn.l2_norm_eps = 1e-6
+
+train_fn.enable_tf32 = True
+
+create_data_loader.prefetch_factor = 128
+create_data_loader.num_workers = 8

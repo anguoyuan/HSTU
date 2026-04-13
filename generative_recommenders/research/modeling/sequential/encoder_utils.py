@@ -19,6 +19,9 @@ from generative_recommenders.research.modeling.sequential.embedding_modules impo
     EmbeddingModule,
 )
 from generative_recommenders.research.modeling.sequential.hstu import HSTU
+from generative_recommenders.research.modeling.sequential.hstu_rankmixer import (
+    HSTUWithRankMixer,
+)
 from generative_recommenders.research.modeling.sequential.input_features_preprocessors import (
     InputFeaturesPreprocessorModule,
 )
@@ -112,6 +115,67 @@ def hstu_encoder(
 
 
 @gin.configurable
+def hstu_rankmixer_encoder(
+    max_sequence_length: int,
+    max_output_length: int,
+    embedding_module: EmbeddingModule,
+    similarity_module: SimilarityModule,
+    input_preproc_module: InputFeaturesPreprocessorModule,
+    output_postproc_module: OutputPostprocessorModule,
+    activation_checkpoint: bool,
+    verbose: bool,
+    # HSTU hyperparameters
+    num_blocks: int = 2,
+    num_heads: int = 1,
+    dqk: int = 64,
+    dv: int = 64,
+    linear_dropout_rate: float = 0.0,
+    attn_dropout_rate: float = 0.0,
+    normalization: str = "rel_bias",
+    linear_config: str = "uvqk",
+    linear_activation: str = "silu",
+    concat_ua: bool = False,
+    enable_relative_attention_bias: bool = True,
+    # RankMixer hyperparameters
+    rankmixer_dim_per_token: int = 16,
+    rankmixer_num_experts: int = 4,
+    rankmixer_k: float = 4.0,
+    rankmixer_t_multiplier: float = 1.0,
+    rankmixer_ffn_layers: int = 2,
+    rankmixer_n_layers: int = 2,
+    rankmixer_dropout: float = 0.05,
+) -> SequentialEncoderWithLearnedSimilarityModule:
+    return HSTUWithRankMixer(
+        embedding_module=embedding_module,
+        similarity_module=similarity_module,  # pyre-ignore [6]
+        input_features_preproc_module=input_preproc_module,
+        output_postproc_module=output_postproc_module,
+        max_sequence_len=max_sequence_length,
+        max_output_len=max_output_length,
+        embedding_dim=embedding_module.item_embedding_dim,
+        num_blocks=num_blocks,
+        num_heads=num_heads,
+        attention_dim=dqk,
+        linear_dim=dv,
+        linear_dropout_rate=linear_dropout_rate,
+        attn_dropout_rate=attn_dropout_rate,
+        linear_config=linear_config,
+        linear_activation=linear_activation,
+        normalization=normalization,
+        concat_ua=concat_ua,
+        enable_relative_attention_bias=enable_relative_attention_bias,
+        verbose=verbose,
+        rankmixer_dim_per_token=rankmixer_dim_per_token,
+        rankmixer_num_experts=rankmixer_num_experts,
+        rankmixer_k=rankmixer_k,
+        rankmixer_t_multiplier=rankmixer_t_multiplier,
+        rankmixer_ffn_layers=rankmixer_ffn_layers,
+        rankmixer_n_layers=rankmixer_n_layers,
+        rankmixer_dropout=rankmixer_dropout,
+    )
+
+
+@gin.configurable
 def get_sequential_encoder(
     module_type: str,
     max_sequence_length: int,
@@ -136,6 +200,17 @@ def get_sequential_encoder(
         )
     elif module_type == "HSTU":
         model = hstu_encoder(
+            max_sequence_length=max_sequence_length,
+            max_output_length=max_output_length,
+            embedding_module=embedding_module,
+            similarity_module=interaction_module,
+            input_preproc_module=input_preproc_module,
+            output_postproc_module=output_postproc_module,
+            activation_checkpoint=activation_checkpoint,
+            verbose=verbose,
+        )
+    elif module_type == "HSTUWithRankMixer":
+        model = hstu_rankmixer_encoder(
             max_sequence_length=max_sequence_length,
             max_output_length=max_output_length,
             embedding_module=embedding_module,
