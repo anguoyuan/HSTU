@@ -45,6 +45,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 SUPPORTED_CONFIGS = {
     "debug": "debug.gin",
     "kuairand-1k": "kuairand_1k.gin",
+    "kuairand-27k": "kuairand_27k.gin",
     "movielens-1m": "movielens_1m.gin",
     "movielens-20m": "movielens_20m.gin",
     "movielens-13b": "movielens_13b.gin",

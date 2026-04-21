@@ -1,5 +1,5 @@
-batch_size = 16
-dataset = "kuairand-1k"
+batch_size = 64
+dataset = "kuairand-27k"
 
 # model parameters
 make_model.dataset = %dataset
@@ -37,14 +37,8 @@ train_loop.metric_log_frequency = 10
 train_eval_loop.num_epochs = 5
 train_eval_loop.output_trace = False
 train_eval_loop.metric_log_frequency = 10
-# Bound the inner eval loop (otherwise it cycles the eval iterator forever)
-# and don't eval after every train step.
-train_eval_loop.num_eval_batches = 15
-train_eval_loop.eval_frequency = 50
+train_eval_loop.num_eval_batches = 30
+train_eval_loop.eval_frequency = 200
 
 # logger variables
-MetricsLogger.tensorboard_log_path = "/tmp/tensorboard_log_path.log"
-
-# checkpoint
-# save_dmp_checkpoint.path = "/home/linjianma/ckpts/kuairand_1k"
-# load_dmp_checkpoint.path = "/home/linjianma/ckpts/kuairand_1k/2025_01_12_17_56_43/"
+MetricsLogger.tensorboard_log_path = "/tmp/tensorboard_log_path_27k.log"

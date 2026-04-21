@@ -221,15 +221,18 @@ def get_hstu_configs(dataset: str = "debug") -> DlrmHSTUConfig:
             )
         ]
     elif "kuairand" in dataset:
-        hstu_config.user_embedding_feature_names = [
-            "video_id",
+        kuairand_contextual_features = [
             "user_id",
             "user_active_degree",
             "follow_user_num_range",
             "fans_user_num_range",
             "friend_user_num_range",
             "register_days_range",
-        ]
+            "is_video_author",
+        ] + [f"onehot_feat{i}" for i in range(18)]
+        hstu_config.user_embedding_feature_names = [
+            "video_id",
+        ] + kuairand_contextual_features
         hstu_config.item_embedding_feature_names = [
             "item_video_id",
         ]
@@ -239,82 +242,40 @@ def get_hstu_configs(dataset: str = "debug") -> DlrmHSTUConfig:
         hstu_config.uih_weight_feature_name = "action_weight"
         hstu_config.candidates_weight_feature_name = "item_action_weight"
         hstu_config.candidates_watchtime_feature_name = "item_target_watchtime"
-        # There are more contextual features in the dataset, see https://kuairand.com/ for details
+        # All contextual features used from KuaiRand-1K. See https://kuairand.com/
         hstu_config.contextual_feature_to_max_length = {
-            "user_id": 1,
-            "user_active_degree": 1,
-            "follow_user_num_range": 1,
-            "fans_user_num_range": 1,
-            "friend_user_num_range": 1,
-            "register_days_range": 1,
+            name: 1 for name in kuairand_contextual_features
         }
         hstu_config.merge_uih_candidate_feature_mapping = [
             ("video_id", "item_video_id"),
             ("action_timestamp", "item_query_time"),
             ("action_weight", "item_action_weight"),
             ("watch_time", "item_target_watchtime"),
+            ("duration_ms", "item_duration_ms"),
         ]
-        hstu_config.hstu_uih_feature_names = [
-            "user_id",
-            "user_active_degree",
-            "follow_user_num_range",
-            "fans_user_num_range",
-            "friend_user_num_range",
-            "register_days_range",
+        hstu_config.hstu_uih_feature_names = kuairand_contextual_features + [
             "video_id",
             "action_timestamp",
             "action_weight",
             "watch_time",
+            "duration_ms",
         ]
         hstu_config.hstu_candidate_feature_names = [
             "item_video_id",
             "item_action_weight",
             "item_target_watchtime",
+            "item_duration_ms",
             "item_query_time",
         ]
+        # Single-task setup: predict is_click only.
         hstu_config.multitask_configs = [
             TaskConfig(
                 task_name="is_click",
                 task_weight=1,
                 task_type=MultitaskTaskType.BINARY_CLASSIFICATION,
             ),
-            TaskConfig(
-                task_name="is_like",
-                task_weight=2,
-                task_type=MultitaskTaskType.BINARY_CLASSIFICATION,
-            ),
-            TaskConfig(
-                task_name="is_follow",
-                task_weight=4,
-                task_type=MultitaskTaskType.BINARY_CLASSIFICATION,
-            ),
-            TaskConfig(
-                task_name="is_comment",
-                task_weight=8,
-                task_type=MultitaskTaskType.BINARY_CLASSIFICATION,
-            ),
-            TaskConfig(
-                task_name="is_forward",
-                task_weight=16,
-                task_type=MultitaskTaskType.BINARY_CLASSIFICATION,
-            ),
-            TaskConfig(
-                task_name="is_hate",
-                task_weight=32,
-                task_type=MultitaskTaskType.BINARY_CLASSIFICATION,
-            ),
-            TaskConfig(
-                task_name="long_view",
-                task_weight=64,
-                task_type=MultitaskTaskType.BINARY_CLASSIFICATION,
-            ),
-            TaskConfig(
-                task_name="is_profile_enter",
-                task_weight=128,
-                task_type=MultitaskTaskType.BINARY_CLASSIFICATION,
-            ),
         ]
-        hstu_config.action_weights = [1, 2, 4, 8, 16, 32, 64, 128]
+        hstu_config.action_weights = [1]
     else:
         hstu_config.user_embedding_feature_names = [
             "uih_post_id",
@@ -538,6 +499,25 @@ def get_embedding_table_config(dataset: str = "debug") -> Dict[str, EmbeddingCon
                 data_type=DataType.FP16,
                 feature_names=["register_days_range"],
             ),
+            "is_video_author": EmbeddingConfig(
+                num_embeddings=2,
+                embedding_dim=HSTU_EMBEDDING_DIM,
+                name="is_video_author",
+                data_type=DataType.FP16,
+                feature_names=["is_video_author"],
+            ),
+            **{
+                f"onehot_feat{i}": EmbeddingConfig(
+                    num_embeddings=n,
+                    embedding_dim=HSTU_EMBEDDING_DIM,
+                    name=f"onehot_feat{i}",
+                    data_type=DataType.FP16,
+                    feature_names=[f"onehot_feat{i}"],
+                )
+                for i, n in enumerate(
+                    [2, 7, 50, 1461, 14, 28, 3, 115, 453, 7, 5, 3, 2, 2, 2, 2, 2, 2]
+                )
+            },
         }
     else:
         return {

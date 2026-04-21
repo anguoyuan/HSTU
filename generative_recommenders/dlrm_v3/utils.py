@@ -374,6 +374,7 @@ SUPPORTED_DATASETS = [
     "movielens-13b",
     "movielens-18b",
     "kuairand-1k",
+    "kuairand-27k",
     "streaming-400m",
     "streaming-200b",
     "streaming-100b",
@@ -432,6 +433,15 @@ def get_dataset(name: str, new_path_prefix: str = ""):
             {
                 "ratings_file_prefix": os.path.join(
                     new_path_prefix, "data/ml-18b/20x36864"
+                ),
+            },
+        )
+    if name == "kuairand-27k":
+        return (
+            DLRMv3KuaiRandDataset,
+            {
+                "seq_logs_file": os.path.join(
+                    new_path_prefix, "data/KuaiRand-27K/data/processed_seqs.csv"
                 ),
             },
         )

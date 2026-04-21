@@ -49,6 +49,18 @@ class DLRMv3KuaiRandDataset(DLRMv3RandomDataset):
     ) -> None:
         super().__init__(hstu_config=hstu_config, is_inference=is_inference)
         self.seq_logs_frame: pd.DataFrame = pd.read_csv(seq_logs_file, delimiter=",")
+        # Clean known data-quality issues in processed_seqs.csv before hashing:
+        #   is_live_streamer has int8-overflow artifacts (e.g. -124) — clip to {0, 1}.
+        #   Some onehot_feat* columns store floats with NaN — fill and cast to int64.
+        if "is_live_streamer" in self.seq_logs_frame.columns:
+            self.seq_logs_frame["is_live_streamer"] = (
+                self.seq_logs_frame["is_live_streamer"].clip(0, 1).astype("int64")
+            )
+        for col in [f"onehot_feat{i}" for i in (4, 12, 13, 14, 15, 16, 17)]:
+            if col in self.seq_logs_frame.columns:
+                self.seq_logs_frame[col] = (
+                    self.seq_logs_frame[col].fillna(0).astype("int64")
+                )
         # apply hashing from embedding table config
         for key, table in embedding_config.items():
             assert key in self.seq_logs_frame.columns, (
@@ -99,6 +111,10 @@ class DLRMv3KuaiRandDataset(DLRMv3RandomDataset):
                 data.play_time_ms,
                 candidates_max_seq_len=max_num_candidates,
             )
+            duration_uih, duration_candidates = separate_uih_candidates(
+                data.duration_ms,
+                candidates_max_seq_len=max_num_candidates,
+            )
 
             video_history_uih = maybe_truncate_seq(video_history_uih, self._max_uih_len)
             action_weights_uih = maybe_truncate_seq(
@@ -106,6 +122,7 @@ class DLRMv3KuaiRandDataset(DLRMv3RandomDataset):
             )
             timestamps_uih = maybe_truncate_seq(timestamps_uih, self._max_uih_len)
             watch_time_uih = maybe_truncate_seq(watch_time_uih, self._max_uih_len)
+            duration_uih = maybe_truncate_seq(duration_uih, self._max_uih_len)
 
             uih_seq_len = len(video_history_uih)
             assert uih_seq_len == len(timestamps_uih), (
@@ -117,6 +134,9 @@ class DLRMv3KuaiRandDataset(DLRMv3RandomDataset):
             assert uih_seq_len == len(watch_time_uih), (
                 "history len differs from watch time len."
             )
+            assert uih_seq_len == len(duration_uih), (
+                "history len differs from duration len."
+            )
 
             uih_kjt_values: List[torch.Tensor] = []
             uih_kjt_lengths: List[torch.Tensor] = []
@@ -125,7 +145,11 @@ class DLRMv3KuaiRandDataset(DLRMv3RandomDataset):
                 uih_kjt_lengths.append(length)
 
             uih_kjt_values.extend(
-                video_history_uih + timestamps_uih + action_weights_uih + watch_time_uih
+                video_history_uih
+                + timestamps_uih
+                + action_weights_uih
+                + watch_time_uih
+                + duration_uih
             )
 
             uih_kjt_lengths.extend(
@@ -152,6 +176,7 @@ class DLRMv3KuaiRandDataset(DLRMv3RandomDataset):
                 video_history_candidates
                 + action_weights_candidates
                 + watch_time_candidates
+                + duration_candidates
                 + [dummy_query_time] * max_num_candidates
             )
             candidates_features_kjt = KeyedJaggedTensor(

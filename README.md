@@ -124,6 +124,96 @@ CFLAGS="-std=c++14 -O3" python -m pip install .
 LOCAL_WORLD_SIZE=4 WORLD_SIZE=4 python3 generative_recommenders/dlrm_v3/inference/main.py --dataset debug
 ```
 
+### KuaiRand Ranking (single-task `is_click`)
+
+This fork adds an end-to-end recipe for training the DLRM-v3 ranker on the public
+KuaiRand dataset on a single GPU. The configuration uses **all** KuaiRand features
+(25 contextual + 5 sequence) and trains a **single binary task** (`is_click`).
+
+#### 1. Environment fixes
+
+The upstream code path uses TMA APIs added in Triton 3.3+, while `torch==2.6.0`
+pins `triton==3.2.0`. Two one-time adjustments are needed:
+
+```bash
+# (a) Upgrade Triton to a release that has tl.make_tensor_descriptor / triton.set_allocator
+pip install --user 'triton==3.4.0'
+
+# (b) Patch torch's inductor hints.py so its AttrsDescriptor lookup falls back gracefully
+# (triton 3.4 removed AttrsDescriptor; we never invoke torch.compile in this path,
+# so the namedtuple shim is fine).
+python3 - <<'PY'
+import pathlib, re
+p = pathlib.Path(__import__('torch').__file__).with_name('_inductor')/'runtime'/'hints.py'
+src = p.read_text()
+needle = '    except ImportError:\n        from triton.compiler.compiler import AttrsDescriptor'
+if needle in src and 'except ImportError:\n            from triton.compiler.compiler import AttrsDescriptor' not in src:
+    new = src.replace(
+        '    except ImportError:\n        from triton.compiler.compiler import AttrsDescriptor\n\n        def AttrsDescriptorWrapper(\n            divisible_by_16=None,\n            equal_to_1=None,\n        ):\n            # Prepare the arguments for AttrsDescriptor\n            kwargs = {\n                "divisible_by_16": divisible_by_16,\n                "equal_to_1": equal_to_1,\n            }\n\n            # Instantiate AttrsDescriptor with the prepared arguments\n            return AttrsDescriptor(**kwargs)\n\nelse:',
+        '    except ImportError:\n        try:\n            from triton.compiler.compiler import AttrsDescriptor\n\n            def AttrsDescriptorWrapper(\n                divisible_by_16=None,\n                equal_to_1=None,\n            ):\n                kwargs = {"divisible_by_16": divisible_by_16, "equal_to_1": equal_to_1}\n                return AttrsDescriptor(**kwargs)\n\n        except ImportError:\n            AttrsDescriptorWrapper = collections.namedtuple(\n                "AttrsDescriptor", ["divisible_by_16", "equal_to_1"], defaults=[(), ()],\n            )\n\nelse:'
+    )
+    p.write_text(new)
+    print('patched', p)
+else:
+    print('no patch needed')
+PY
+```
+
+#### 2. Download and preprocess data
+
+KuaiRand-1K (~1k users, ~1 GB):
+
+```bash
+mkdir -p data/
+python3 generative_recommenders/dlrm_v3/preprocess_public_data.py --dataset kuairand-1k
+```
+
+KuaiRand-27K (~27k users, ~10 GB tar.gz, ~12 GB processed CSV):
+
+```bash
+python3 generative_recommenders/dlrm_v3/preprocess_public_data.py --dataset kuairand-27k
+```
+
+Both produce `data/KuaiRand-{1K,27K}/data/processed_seqs.csv`. Update
+`make_train_test_dataloaders.new_path_prefix` in the matching gin file if your
+data lives outside the repo root.
+
+#### 3. Train on a single GPU
+
+```bash
+# 1k variant — quick smoke test (5 epochs, ~5 min on a single H200)
+CUDA_VISIBLE_DEVICES=0 LOCAL_WORLD_SIZE=1 WORLD_SIZE=1 \
+  python3 generative_recommenders/dlrm_v3/train/train_ranker.py \
+  --dataset kuairand-1k --mode train-eval
+
+# 27k variant — bigger and slower (5 epochs, ~1–2 h on a single H200, batch_size=64)
+CUDA_VISIBLE_DEVICES=0 LOCAL_WORLD_SIZE=1 WORLD_SIZE=1 \
+  python3 generative_recommenders/dlrm_v3/train/train_ranker.py \
+  --dataset kuairand-27k --mode train-eval
+```
+
+Per-step `train`/`eval` metrics (NE, Accuracy, GAUC for `is_click`) are logged to
+stdout. Tensorboard files land at `/tmp/tensorboard_log_path*.log`.
+
+#### Notes on this fork's changes
+
+- **All KuaiRand features used**: `configs.py` enables 25 contextual features
+  (`user_id`, `user_active_degree`, range buckets, `is_video_author`, `onehot_feat0..17`)
+  plus `duration_ms` as a per-item sequence feature. `kuairand.py` cleans known
+  data-quality issues (`is_live_streamer` int8 overflow, NaN in float onehot
+  columns) at dataset construction time.
+- **Single task `is_click`** instead of the original 8-task multitask head.
+  Most KuaiRand actions (`is_follow`, `is_forward`, `is_hate`, ...) have positive
+  rates well below 1% on the candidate split, which made the multitask losses
+  numerically unstable. To restore multitask, expand `multitask_configs` and
+  `action_weights` in `configs.py`.
+- **Bounded eval loop**: `train_eval_loop` in `train/utils.py` only breaks the
+  inner eval loop when `num_eval_batches` is set. The shipped gin files set this
+  (`= 15` for 1k, `= 30` for 27k) and bump `eval_frequency` so eval doesn't fire
+  after every train step.
+- **Profiler off by default** (`output_trace=False`) — the upstream profiler
+  writes traces to a Meta-internal `manifold://` path that doesn't exist outside.
+
 ## License
 This codebase is Apache 2.0 licensed, as found in the [LICENSE](LICENSE) file.
 
